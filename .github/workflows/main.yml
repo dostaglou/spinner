@@ -1,36 +1,54 @@
 name: Native HTTP contract
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
     inputs:
       soak:
-        description: Run longer resource and restart checks
+        description: Run the longer resource and restart checks
         type: boolean
         default: false
 
-# These runners must have Spinel, its C toolchain, OpenSSL, Nginx, Ruby 3.3,
-# and Bundler provisioned. Spinel is not installed by bundler/setup-ruby.
+permissions:
+  contents: read
+
 jobs:
   contract:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macOS, Linux]
-    runs-on: [self-hosted, '${{ matrix.os }}', spinel]
-    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Verify native prerequisites
+
+      - name: Install native test prerequisites
         run: |
-          ruby --version
+          sudo apt-get update
+          sudo apt-get install -y build-essential libffi-dev libssl-dev nginx
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3.6"
+          bundler-cache: true
+
+      # Spinel is a source-built compiler rather than a Ruby gem. Keep this
+      # pinned to the compiler revision used to validate the contract suite.
+      - uses: actions/checkout@v4
+        with:
+          repository: matz/spinel
+          ref: 21cc20850adbdcd3fb9df832572240fee97533b5
+          path: .ci/spinel
+
+      - name: Build Spinel
+        run: |
+          make -C .ci/spinel deps
+          make -C .ci/spinel
+          echo "$GITHUB_WORKSPACE/.ci/spinel" >> "$GITHUB_PATH"
+          export PATH="$GITHUB_WORKSPACE/.ci/spinel:$PATH"
           spinel --version
+          spinel --version | grep -F '21cc2085'
           nginx -v
-          openssl version
-          cc --version
-      - run: bundle install
-      - run: bundle exec rake test
-      - if: ${{ github.event_name == 'workflow_dispatch' && inputs.soak }}
+
+      - name: Run test suite
+        run: bundle exec rake test
+
+      - name: Run resource and restart soak tests
+        if: ${{ inputs.soak }}
         run: bundle exec rake soak

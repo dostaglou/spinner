@@ -128,9 +128,11 @@ bundle exec rake test
 bundle exec rake soak
 ```
 
-Provision Spinel, a C compiler, OpenSSL, and Nginx on PATH. The CI matrix targets
-provisioned self-hosted runners labelled `spinel` and `macOS` or `Linux`;
-provisioning those runners is required before CI can execute. Missing prerequisites
-fail tests. `KEEP_SPINNER_TEST_ARTIFACTS=1` retains build and process artifacts;
-failed startup/process logs are retained automatically. See
+The GitHub Actions workflow is manual-only for now. It uses a GitHub-hosted
+Ubuntu runner, installs the native test tools, and builds a pinned Spinel
+revision. Select **Run workflow** in the Actions tab; enable the `soak` input to
+run the longer resource and restart checks. Locally, provide Spinel, a C
+compiler, OpenSSL, and Nginx on `PATH`. `KEEP_SPINNER_TEST_ARTIFACTS=1` retains
+build and process artifacts; failed startup/process logs are retained
+automatically. See
 [test/COVERAGE.md](test/COVERAGE.md) for evidence and remaining release gates.

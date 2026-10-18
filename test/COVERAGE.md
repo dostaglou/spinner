@@ -27,9 +27,10 @@ no request trailers; only the listed methods; absolute target scheme must match
 the socket; response header names must be lowercase. Forwarded trust is a
 Spinner policy rather than an imitation of Puma's configurable header mode.
 
-Release evidence is recorded from the local macOS Spinel environment. Linux
-execution remains a release gate; CI needs a provisioned Spinel runtime as well
-as OpenSSL and Nginx. Actual disk-full/permission fault injection, sustained
+Release evidence is recorded from the local macOS Spinel environment. The
+manual GitHub Actions workflow provisions Ubuntu, Nginx, OpenSSL, and a pinned
+Spinel compiler; its first hosted Linux run remains pending. Actual
+disk-full/permission fault injection, sustained
 slow-reader fairness across many connections, and extended restart/resource
 soaks remain additional production gates. A configured budget failure is not
 proof of OS-level ENOSPC handling. Network deadlines cannot safely preempt
