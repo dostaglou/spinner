@@ -1,27 +1,36 @@
-name: Ruby
+name: Native HTTP contract
 
 on:
   push:
-    branches:
-      - main
-
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      soak:
+        description: Run longer resource and restart checks
+        type: boolean
+        default: false
 
+# These runners must have Spinel, its C toolchain, OpenSSL, Nginx, Ruby 3.3,
+# and Bundler provisioned. Spinel is not installed by bundler/setup-ruby.
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    name: Ruby ${{ matrix.ruby }}
+  contract:
     strategy:
+      fail-fast: false
       matrix:
-        ruby:
-          - '3.3.6'
-
+        os: [macOS, Linux]
+    runs-on: [self-hosted, '${{ matrix.os }}', spinel]
+    timeout-minutes: 20
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Ruby
-      uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: ${{ matrix.ruby }}
-        bundler-cache: true
-    - name: Run the default task
-      run: bundle exec rake
+      - uses: actions/checkout@v4
+      - name: Verify native prerequisites
+        run: |
+          ruby --version
+          spinel --version
+          nginx -v
+          openssl version
+          cc --version
+      - run: bundle install
+      - run: bundle exec rake test
+      - if: ${{ github.event_name == 'workflow_dispatch' && inputs.soak }}
+        run: bundle exec rake soak

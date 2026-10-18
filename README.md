@@ -1,39 +1,136 @@
 # Spinner
 
-TODO: Delete this and the text below, and describe your gem
+Spinner is a native Spinel HTTP/1.1 server. An application implements `call(env)`
+and returns `[status, headers, body]`. Compile the application with the packaged
+library, then run the resulting executable:
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/spinner`. To experiment with that code, run `bin/console` for an interactive prompt.
+```ruby
+require "spinner"
 
-## Installation
+class Application
+  def call(env)
+    [200, {"content-type" => "text/plain"}, ["Hello"]]
+  end
+end
 
-TODO: Replace `UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG` with your gem name right after releasing it to RubyGems.org. Please do not do it earlier due to security reasons. Alternatively, replace this section with instructions to install your gem from git if you don't plan to release to RubyGems.org.
+Spinner::Server.new(Application.new, host: "127.0.0.1", port: 4000).run
+```
 
-Install the gem and add to the application's Gemfile by executing:
+```sh
+spinel app.rb --require-gate -I lib -o app
+./app
+```
 
-    $ bundle add UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+The environment includes request method, path, query, protocol, validated Host,
+content headers, normalized `HTTP_*` headers, `REMOTE_ADDR`, `rack.url_scheme`,
+and binary `rack.input`. Input supports `read(length = nil, buffer = nil)`,
+`gets`, `each`, `rewind`, and `close`. Dispatch waits for the complete request
+body. Input and temporary storage belong to the request and are closed when its
+response finishes. Calling `read` without a length explicitly allocates the
+remaining body; consume with sized reads to keep application memory bounded.
 
-If bundler is not being used to manage dependencies, install the gem by executing:
+Headers use lowercase names and string or string-array values. Arrays emit
+separate fields, including `set-cookie`. Response framing belongs to Spinner.
+An array body produces a Content-Length response; an enumerable body streams
+with HTTP/1.1 chunking (HTTP/1.0 streams close the connection). HEAD closes the
+body without enumerating streams. Finite HTTP/1.1 streams preserve keep-alive
+and pipelining. Body `close` runs after completion, errors, or disconnection.
 
-    $ gem install UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+| Option | Default | Behavior |
+| --- | --- | --- |
+| `max_body_bytes` | 1 MiB | Decoded body limit for both framing modes; overflow returns 413 |
+| `body_memory_bytes` | 64 KiB | Spill threshold, between zero and body limit |
+| `spool_directory` | `TMPDIR` or `/tmp` | Exclusive binary files, mode 0600 |
+| `spool_budget_bytes` | 128 MiB | Aggregate server disk budget; divided evenly across worker processes |
+| `storage_workers` | 2 | Disk workers per process; socket reads pause during pending writes |
+| `max_header_bytes` | 32 KiB | Request header limit |
+| `header_timeout`, `body_timeout`, `write_timeout` | 5 seconds each | Ordinary network deadlines |
+| `stream_idle_timeout` | 30 seconds | Stream/upgrade transport idle deadline, refreshed on progress |
+| `max_streams`, `max_upgrades` | 32 each | Separate execution/admission limits per process; excess returns 503 before headers |
+| `trusted_proxies` | `[]` | IPv4/IPv6 CIDRs allowed to supply standardized Forwarded metadata |
+| `threads`, `queue_capacity`, `max_connections` | 4, 64, 128 | Application workers, queued work, accepted connections per process |
+| `queue_timeout`, `keepalive_timeout` | 5 seconds each | Admission wait and idle connection deadlines |
+| `max_requests_per_connection` | 100 | Keep-alive request ceiling |
+| `drain_timeout` | 10 seconds | Shutdown deadline |
+| `worker_processes` | 1 | Supervised TCP workers; HUP rolls them one at a time |
+| `unix_path`, `listener` | `nil` | Unix socket or supplied listener, mutually exclusive |
+| `tls_cert`, `tls_key` | `nil` | PEM chain/key pair for TCP TLS |
 
-## Usage
+Spool exhaustion and filesystem failures return 503 and release storage.
+Transport, application, stream, storage, admission, worker, TLS, and shutdown
+metrics go to stderr as `SPINNER_METRIC event=...` records. Unix sockets have
+an empty remote address. Forwarded fields are ignored for untrusted immediate
+peers. Trusted chains are validated in full, then walked from the nearest peer
+until the first untrusted address. Malformed chains do not change identity or
+scheme; X-Forwarded-* fields never change them.
 
-TODO: Write usage instructions here
+TLS loads libssl when requested, checks chain/key loading and key matching,
+permits TLS 1.2/1.3, and selects only `http/1.1` via ALPN. Clients can omit ALPN.
+Set `SPINNER_SSL_LIBRARY` to a matching OpenSSL shared library if needed.
 
-## Development
+TERM/INT stop admission, close idle and partial clients, and allow active work
+to finish within the drain deadline. HUP in multiprocess mode rolls workers.
+Unexpected worker exits trigger replacement; more than five unexpected exits
+in ten seconds stop the supervisor. Workers detect parent death. Network
+timeouts do not safely interrupt arbitrary application or enumerator code.
+A timed-out enumerator retains its bounded execution slot until it returns or
+the worker exits. Recover stuck application code by replacing the process.
+Abruptly killing an unsupervised process can leave a named spool file; a
+supervisor removes its dead workers' spool files.
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+Optional WebSockets use the bundled adapter:
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+```ruby
+require "spinner/websocket"
 
-## Contributing
+class Echo
+  def call(session)
+    message = session.read_message # [opcode, binary bytes], or nil after close
+    session.write_message(message[0], message[1]) unless message.nil?
+    session.close
+  end
+end
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/spinner. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [code of conduct](https://github.com/[USERNAME]/spinner/blob/main/CODE_OF_CONDUCT.md).
+class Application
+  def call(env)
+    [101, {"upgrade" => "websocket"}, Echo.new]
+  end
+end
 
-## License
+application = Spinner::WebSocket::Adapter.new(Application.new,
+  max_message_bytes: 1048576, idle_timeout: 30.0)
+Spinner::Server.new(application).run
+```
 
-The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
+The adapter validates handshakes before application dispatch, bounds messages,
+validates masking and UTF-8 text, reassembles fragmentation, handles ping/pong,
+and exchanges close frames. It does not negotiate extensions or subprotocols.
+The core upgrade API accepts `[101, headers, Spinner::Upgrade.new { |transport,
+buffered_bytes| ... }]`. The callback owns the transport until it returns;
+Spinner keeps the connection counted and closes it on return or shutdown.
 
-## Code of Conduct
+Supported methods are GET, HEAD, POST, PUT, PATCH, DELETE, and OPTIONS, including
+`OPTIONS *`. Absolute targets must match Host and transport scheme. TRACE and
+CONNECT are disabled. Duplicate Host/framing/singleton fields, normalization
+collisions, trailers, and ambiguous framing are rejected. Ordinary repeated
+fields combine with commas; Cookie uses semicolons. Routing, multipart/form
+parsing, authentication, and middleware belong to the application. Full Rack
+compatibility, HTTP/2, mTLS, SNI certificate selection, early hints, sendfile,
+and Puma CLI parity remain outside this contract.
 
-Everyone interacting in the Spinner project's codebases, issue trackers, chat rooms and mailing lists is expected to follow the [code of conduct](https://github.com/[USERNAME]/spinner/blob/main/CODE_OF_CONDUCT.md).
+The reference dependency is **Puma 8.0.2**. Tests build and unpack the gem,
+compile basic startup and native component probes separately from the expanded
+application fixture, and exercise native executables over sockets:
+
+```sh
+bundle install
+bundle exec rake test
+bundle exec rake soak
+```
+
+Provision Spinel, a C compiler, OpenSSL, and Nginx on PATH. The CI matrix targets
+provisioned self-hosted runners labelled `spinel` and `macOS` or `Linux`;
+provisioning those runners is required before CI can execute. Missing prerequisites
+fail tests. `KEEP_SPINNER_TEST_ARTIFACTS=1` retains build and process artifacts;
+failed startup/process logs are retained automatically. See
+[test/COVERAGE.md](test/COVERAGE.md) for evidence and remaining release gates.
