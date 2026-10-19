@@ -96,6 +96,22 @@ class LifecycleTest < Minitest::Test
     end
   end
 
+  def test_reactor_heartbeat_is_disabled_by_default
+    with_server do |server|
+      sleep 1.1
+      refute_match(/event=reactor/, File.binread(server.log))
+    end
+  end
+
+  def test_reactor_heartbeat_can_be_enabled
+    with_server("SPINNER_REACTOR_HEARTBEAT" => "1") do |server|
+      Timeout.timeout(4) do
+        sleep 0.025 until File.binread(server.log).match?(/event=reactor/)
+      end
+      assert_match(/event=reactor/, File.binread(server.log))
+    end
+  end
+
   def test_invalid_worker_configuration_fails_startup
     binary = SpinnerTest.build.binary
     error = assert_raises(RuntimeError) do

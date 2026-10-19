@@ -53,6 +53,7 @@ and pipelining. Body `close` runs after completion, errors, or disconnection.
 | `max_requests_per_connection` | 100 | Keep-alive request ceiling |
 | `drain_timeout` | 10 seconds | Shutdown deadline |
 | `worker_processes` | 1 | Supervised TCP workers; HUP rolls them one at a time |
+| `reactor_heartbeat` | `false` | Emit the once-per-second `SPINNER_METRIC event=reactor` snapshot |
 | `unix_path`, `listener` | `nil` | Unix socket or supplied listener, mutually exclusive |
 | `tls_cert`, `tls_key` | `nil` | PEM chain/key pair for TCP TLS |
 
@@ -63,6 +64,11 @@ an empty remote address. Forwarded fields are ignored for untrusted immediate
 peers. Trusted chains are validated in full, then walked from the nearest peer
 until the first untrusted address. Malformed chains do not change identity or
 scheme; X-Forwarded-* fields never change them.
+
+The periodic reactor heartbeat is disabled by default. Enable it in Ruby with
+`reactor_heartbeat: true` or with `SPINNER_REACTOR_HEARTBEAT=1`. This controls
+only the periodic reactor snapshot; request, failure, queue, worker, and
+shutdown metrics remain enabled.
 
 TLS loads libssl when requested, checks chain/key loading and key matching,
 permits TLS 1.2/1.3, and selects only `http/1.1` via ALPN. Clients can omit ALPN.

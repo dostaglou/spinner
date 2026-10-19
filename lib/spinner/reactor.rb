@@ -376,6 +376,7 @@ module Spinner
       @keepalive_timeout = keepalive_timeout
       @max_requests = max_requests
       @tls_context = tls_context
+      @reactor_heartbeat = options[:reactor_heartbeat]
       @shutdown_requested = false
       @graceful_shutdown = false
       @force_shutdown_requested = false
@@ -400,7 +401,7 @@ module Spinner
     def run
       loop do
         now = Transport.now
-        if now - @last_heartbeat >= 1.0
+        if @reactor_heartbeat && now - @last_heartbeat >= 1.0
           warn "SPINNER_METRIC event=reactor pid=#{Process.pid} connections=#{@capacity.count} clients=#{@clients.length} queued=#{@queued.length} app_active=#{@pool.active_count}"
           @last_heartbeat = now
         end
