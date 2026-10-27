@@ -71,6 +71,17 @@ class SpinnerTestWebSocket
   end
 end
 
+class SpinnerTestWebSocketFrames
+  def call(session)
+    session.read_message
+    [0, 125, 126, 248, 65_535, 65_536].each do |size|
+      session.write_message(1, "x" * size)
+    end
+    session.write_message(2, "\x00\xff".b)
+    session.read_message
+  end
+end
+
 class SpinnerTestApplication
   def initialize
     @count = 0
@@ -136,6 +147,8 @@ class SpinnerTestApplication
       [200, {"bad\r\nheader" => "x"}, ["bad"]]
     elsif path == "/ws"
       [101, {"upgrade" => "websocket"}, SpinnerTestWebSocket.new]
+    elsif path == "/ws-frames"
+      [101, {"upgrade" => "websocket"}, SpinnerTestWebSocketFrames.new]
     else
       [404, {"content-type" => "text/plain"}, ["Not Found"]]
     end

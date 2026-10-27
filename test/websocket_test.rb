@@ -35,6 +35,23 @@ class WebSocketTest < Minitest::Test
     end
   end
 
+  def test_native_outbound_frame_lengths_ping_pong_and_clean_close
+    with_server do |server|
+      tcp(server.port) do |socket|
+        assert_equal(101, handshake(socket, "/ws-frames").first.status)
+        socket.write(masked_frame("start"))
+        [0, 125, 126, 248, 65_535, 65_536].each do |size|
+          assert_equal([1, "x" * size], read_frame(socket))
+        end
+        assert_equal([2, "\x00\xff".b], read_frame(socket))
+        socket.write(masked_frame("p", 9))
+        assert_equal([10, "p"], read_frame(socket))
+        socket.write(masked_frame([1000].pack("n"), 8))
+        assert_equal([8, [1000].pack("n")], read_frame(socket))
+      end
+    end
+  end
+
   def test_invalid_upgrade_key_does_not_dispatch
     with_server do |server|
       before = request(server.port, path: "/count").body.to_i
@@ -66,9 +83,9 @@ class WebSocketTest < Minitest::Test
 
   private
 
-  def handshake(socket)
+  def handshake(socket, path = "/ws")
     key = Base64.strict_encode64("spinner-test-key")
-    socket.write("GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n" \
+    socket.write("GET #{path} HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n" \
                  "Connection: Upgrade\r\nSec-WebSocket-Key: #{key}\r\n" \
                  "Sec-WebSocket-Version: 13\r\n\r\n")
     [read_response(socket), key]
@@ -86,7 +103,8 @@ class WebSocketTest < Minitest::Test
       raise "closed before WebSocket frame" unless head&.bytesize == 2
 
       length = head.getbyte(1) & 0x7f
-      raise "fixture only reads short frames" if length > 125
+      length = socket.read(2).unpack1("n") if length == 126
+      length = socket.read(8).unpack1("Q>") if length == 127
 
       [head.getbyte(0) & 0x0f, socket.read(length)]
     end

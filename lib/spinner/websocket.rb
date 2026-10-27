@@ -133,15 +133,29 @@ module Spinner
 
       def write_frame(opcode, bytes)
         length = bytes.bytesize
-        head = (128 | opcode).chr.b
+        header = [128 | opcode]
         if length < 126
-          head << length.chr.b
+          header << length
         else
           count = length <= 65535 ? 2 : 8
-          head << (count == 2 ? 126 : 127).chr.b
-          (count - 1).downto(0) { |index| head << ((length >> (index * 8)) & 255).chr.b }
+          header << (count == 2 ? 126 : 127)
+          (count - 1).downto(0) { |index| header << ((length >> (index * 8)) & 255) }
         end
-        ResponseWriter.new.write(@transport, [head, bytes], Transport.now + @timeout)
+        deadline = Transport.now + @timeout
+        write_binary_frame_bytes(header.pack("C*").b, deadline)
+        # Pack dynamic payloads too: Spinel's native socket otherwise stops
+        # a decoded string at an embedded NUL during an echo.
+        write_binary_frame_bytes(bytes.bytes.pack("C*").b, deadline)
+      end
+
+      def write_binary_frame_bytes(bytes, deadline)
+        offset = 0
+        while offset < bytes.bytesize
+          remaining = bytes.byteslice(offset, bytes.bytesize - offset).b
+          count = @transport.write_stream_chunk(remaining, deadline)
+          raise IOError, "invalid WebSocket write progress" if count <= 0 || count > remaining.bytesize
+          offset += count
+        end
       end
 
       def protocol_error(code)

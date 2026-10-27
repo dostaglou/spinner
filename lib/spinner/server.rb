@@ -60,6 +60,23 @@ module Spinner
         end
       end
     end
+
+    # A single bounded write for protocols that own their framing and deadline.
+    def write_stream_chunk(bytes, deadline)
+      loop do
+        remaining = deadline - Transport.now
+        raise IOError, "stream write deadline exceeded" if remaining <= 0
+        begin
+          count = @socket.write_stream_nonblock(bytes)
+          progress!
+          return count
+        rescue IO::WaitWritable
+          raise IOError, "stream write deadline exceeded" if IO.select(nil, [@socket.to_io], nil, remaining).nil?
+        rescue IO::WaitReadable
+          raise IOError, "stream write deadline exceeded" if IO.select([@socket.to_io], nil, nil, remaining).nil?
+        end
+      end
+    end
   end
 
   class Connection

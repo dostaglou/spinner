@@ -64,8 +64,19 @@ module Spinner
         @io_lock.synchronize { write_nonblock_unlocked(bytes) }
       end
 
+      # Keep the binary conversion at the native socket call for framed writes.
+      def write_stream_nonblock(bytes)
+        @io_lock.synchronize do
+          if @ssl.nil?
+            @socket.write_nonblock(bytes.b)
+          else
+            write_nonblock_unlocked(bytes)
+          end
+        end
+      end
+
       def write_nonblock_unlocked(bytes)
-        return @socket.write_nonblock(bytes) if @ssl.nil?
+        return @socket.write_nonblock(bytes.b) if @ssl.nil?
         if @pending_write.nil?
           @pending_write = FFI::MemoryPointer.new(:char, bytes.bytesize)
           @pending_write.put_bytes(0, bytes)
