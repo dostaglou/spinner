@@ -112,6 +112,26 @@ class LifecycleTest < Minitest::Test
     end
   end
 
+  def test_routine_request_metrics_are_disabled_by_default
+    with_server do |server|
+      assert_response(request(server.port), 200, "OK")
+      logs = File.binread(server.log)
+      refute_match(/event=queued/, logs)
+      refute_match(/event=start(?:\s|=)/, logs)
+      refute_match(/event=finish/, logs)
+    end
+  end
+
+  def test_routine_request_metrics_can_be_enabled
+    with_server("SPINNER_REQUEST_METRICS" => "1") do |server|
+      assert_response(request(server.port), 200, "OK")
+      logs = File.binread(server.log)
+      assert_match(/event=queued/, logs)
+      assert_match(/event=start\s/, logs)
+      assert_match(/event=finish\s/, logs)
+    end
+  end
+
   def test_invalid_worker_configuration_fails_startup
     binary = SpinnerTest.build.binary
     error = assert_raises(RuntimeError) do

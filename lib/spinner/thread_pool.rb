@@ -56,7 +56,9 @@ module Spinner
         loop do
           client = take
           break if client.nil?
-          warn "SPINNER_METRIC event=start id=#{client.id} queue_wait_ms=#{client.queue_wait_ms} active=#{active_count} queued=#{queued_count} connections=#{@connections.count}"
+          if @options[:request_metrics]
+            warn "SPINNER_METRIC event=start id=#{client.id} queue_wait_ms=#{client.queue_wait_ms} active=#{active_count} queued=#{queued_count} connections=#{@connections.count}"
+          end
           app_ms = nil
           reuse = false
           begin
@@ -66,7 +68,7 @@ module Spinner
               app_ms = result[0]
               reuse = result[1]
             end
-            warn "SPINNER_METRIC event=finish id=#{client.id} app_ms=#{app_ms}"
+            warn "SPINNER_METRIC event=finish id=#{client.id} app_ms=#{app_ms}" if @options[:request_metrics]
           ensure
             if result == :async
               @lock.synchronize { @active.delete(Thread.current) }
@@ -102,7 +104,7 @@ module Spinner
       accepted = pool.submit(cancelled) do
         reuse = false
         begin
-          warn "SPINNER_METRIC event=#{kind}_start id=#{client.id}"
+          warn "SPINNER_METRIC event=#{kind}_start id=#{client.id}" if @options[:request_metrics]
           reuse = work.call
         rescue IOError, SystemCallError => error
           warn "SPINNER_METRIC event=transport_failure message=#{error.message}"
@@ -119,7 +121,7 @@ module Spinner
               client.close
             end
           end
-          warn "SPINNER_METRIC event=#{kind}_finish id=#{client.id}"
+          warn "SPINNER_METRIC event=#{kind}_finish id=#{client.id}" if @options[:request_metrics]
         end
       end
       unless accepted

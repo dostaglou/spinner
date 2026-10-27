@@ -564,7 +564,9 @@ module Spinner
       if @pool.enqueue(client)
         @clients.delete(client)
         @queued << client
-        warn "SPINNER_METRIC event=queued id=#{client.id} queued=#{@pool.queued_count} connections=#{@capacity.count}"
+        if @options[:request_metrics]
+          warn "SPINNER_METRIC event=queued id=#{client.id} queued=#{@pool.queued_count} connections=#{@capacity.count}"
+        end
       else
         client.reject(503)
       end

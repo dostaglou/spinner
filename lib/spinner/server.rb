@@ -173,7 +173,8 @@ module Spinner
                    spool_directory: nil, spool_budget_bytes: 134217728, storage_workers: 2,
                    header_timeout: 5.0, body_timeout: 5.0, write_timeout: 5.0,
                    stream_idle_timeout: 30.0, max_streams: 32, max_upgrades: 32,
-                   trusted_proxies: [], max_header_bytes: 32768, reactor_heartbeat: nil)
+                   trusted_proxies: [], max_header_bytes: 32768, reactor_heartbeat: nil,
+                   request_metrics: nil)
       {"threads" => threads, "queue_capacity" => queue_capacity,
        "max_connections" => max_connections, "max_requests_per_connection" => max_requests_per_connection,
        "worker_processes" => worker_processes}.each do |name, value|
@@ -201,7 +202,8 @@ module Spinner
                   spool_budget_bytes: spool_budget_bytes, storage_workers: storage_workers,
                   stream_idle_timeout: stream_idle_timeout, max_streams: max_streams,
                   max_upgrades: max_upgrades, proxy_policy: ProxyMetadata.new(trusted_proxies),
-                  reactor_heartbeat: reactor_heartbeat.nil? ? ENV.fetch("SPINNER_REACTOR_HEARTBEAT", "0") == "1" : reactor_heartbeat}
+                  reactor_heartbeat: reactor_heartbeat.nil? ? ENV.fetch("SPINNER_REACTOR_HEARTBEAT", "0") == "1" : reactor_heartbeat,
+                  request_metrics: request_metrics.nil? ? ENV.fetch("SPINNER_REQUEST_METRICS", "0") == "1" : request_metrics}
       @header_limit = max_header_bytes
       @header_timeout = header_timeout
       @body_timeout = body_timeout
