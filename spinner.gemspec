@@ -10,8 +10,11 @@ Gem::Specification.new do |spec|
 
   spec.summary = "A Spinel-compatible HTTP application server"
   spec.description = "Spinner compiles with a Spinel application to serve HTTP/1.1 traffic."
+  spec.homepage = "https://github.com/dostaglou/spinner"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.0.0"
+  spec.metadata["source_code_uri"] = spec.homepage
+  spec.metadata["changelog_uri"] = "#{spec.homepage}/blob/main/CHANGELOG.md"
 
   # Specify which files should be added to the gem when it is released.
   # Include working-tree library files so pre-port contract tests exercise the

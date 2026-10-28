@@ -64,9 +64,9 @@ module Spinner
         address = fields["for"]
         return env if address.nil?
         if address.start_with?("[")
-          match = address.match(/\A\[([^\]]+)\](?::[0-9]{1,5})?\z/)
-          return env if match.nil?
-          address = match[1]
+          return env unless address.match?(/\A\[([^\]]+)\](?::[0-9]{1,5})?\z/)
+          closing = address.index("]")
+          address = address.byteslice(1, closing - 1)
         elsif address.include?(":")
           return env unless address.match?(/\A[0-9.]+:[0-9]{1,5}\z/)
           address = address.split(":")[0]
