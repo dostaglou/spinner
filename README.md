@@ -135,10 +135,14 @@ For a package-level preview, build and install the gem, then compile with the
 installed library path. Spinel is a separate compiler prerequisite:
 
 ```sh
-gem build spinner.gemspec
-gem install --local spinner-0.1.0.pre.1.gem
-spinel app.rb --require-gate -I "$(ruby -e 'puts Gem::Specification.find_by_name("spinner").full_gem_path')/lib" -o app
+gem build spinel-spinner.gemspec
+gem install --local spinel-spinner-0.1.0.pre.1.gem
+spinel app.rb --require-gate -I "$(ruby -e 'puts Gem::Specification.find_by_name("spinel-spinner").full_gem_path')/lib" -o app
 ```
+
+The gem is named `spinel-spinner`; application code uses `require "spinner"`
+and the `Spinner` namespace. In a Gemfile, use
+`gem "spinel-spinner", require: "spinner"` when using Bundler's automatic requires.
 
 The installed gem provides Ruby source to the compiler; it does not provide a
 precompiled server executable. Applications still require a Spinel compilation

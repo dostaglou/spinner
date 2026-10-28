@@ -2,7 +2,7 @@
 
 source "https://rubygems.org"
 
-# Specify your gem's dependencies in spinner.gemspec
+# Specify your gem's dependencies in spinel-spinner.gemspec
 gemspec
 
 gem "rake", "~> 13.0"

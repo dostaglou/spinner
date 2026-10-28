@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+- Rename the distribution to `spinel-spinner` while retaining `require "spinner"`
+  and the `Spinner` namespace.
+
 ## [0.1.0.pre.1] - 2026-10-28
 
 - Prepare the first public preview of the packaged Spinel HTTP server.

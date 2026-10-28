@@ -19,8 +19,8 @@ module SpinnerTest
 
     def initialize
       @directory = Dir.mktmpdir("spinner-contract-")
-      gem_file = File.join(@directory, "spinner.gem")
-      run!("gem", "build", "spinner.gemspec", "--output", gem_file, chdir: ROOT)
+      gem_file = File.join(@directory, "spinel-spinner.gem")
+      run!("gem", "build", "spinel-spinner.gemspec", "--output", gem_file, chdir: ROOT)
       package = File.join(@directory, "package")
       Gem::Package.new(gem_file).extract_files(package)
       basic = File.join(@directory, "basic_server")

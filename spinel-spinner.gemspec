@@ -3,7 +3,7 @@
 require_relative "lib/spinner/version"
 
 Gem::Specification.new do |spec|
-  spec.name = "spinner"
+  spec.name = "spinel-spinner"
   spec.version = Spinner::VERSION
   spec.authors = ["Dillon Wyatt"]
   spec.email = ["dostaglou@gmail.com"]
