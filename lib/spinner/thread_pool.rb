@@ -134,6 +134,7 @@ module Spinner
     end
 
     def complete(client, reuse)
+      client.trace[:completion_publication] = Transport.now if client.trace
       retained = @lock.synchronize do
         if reuse && !client.closed? && !@stopping
           @completed << client

@@ -95,8 +95,10 @@ module Spinner
       response = nil
       handed_off = false
       app_started = Transport.now
+      client.trace[:app_start] = app_started if client.trace
       begin
         response = @application.call(client.environment)
+        client.trace[:app_return] = Transport.now if client.trace
         unless response.is_a?(Array) && response.length == 3
           raise ArgumentError, "expected [status, headers, body]"
         end
@@ -148,6 +150,7 @@ module Spinner
         keep_alive = false
       end
       writer.write(transport, chunks, Transport.now + @write_timeout)
+      client.trace[:response_write_done] = Transport.now if client.trace
       [((Transport.now - app_started) * 1000).round, keep_alive]
     rescue IOError, SystemCallError => error
       warn "SPINNER_METRIC event=transport_failure message=#{error.message}"

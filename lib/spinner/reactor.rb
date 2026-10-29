@@ -116,11 +116,13 @@ module Spinner
     def queued!
       @state = :queued
       @queued_at = Transport.now
+      @trace[:queued] = @queued_at if @trace
       @deadline = @queued_at + @queue_timeout
     end
 
     def claim!
       @state = :worker
+      @trace[:worker_start] = Transport.now if @trace
       @queue_wait_ms = ((Transport.now - @queued_at) * 1000).round
     end
 
@@ -152,7 +154,10 @@ module Spinner
       elsif !@storage_error.nil?
         reject(@storage_status)
       else
-        @state = :ready if @body_complete
+        if @body_complete
+          @state = :ready
+          @trace[:ready] = Transport.now if @trace
+        end
         finish_continue
       end
     end
@@ -160,7 +165,10 @@ module Spinner
     def store_chunk(chunk)
       if @body_size + chunk.bytesize <= @options[:body_memory_bytes] && @chunk_decoder.nil?
         append_body(chunk)
-        @state = :ready if @body_complete
+        if @body_complete
+          @state = :ready
+          @trace[:ready] = Transport.now if @trace
+        end
         finish_continue
         return
       end
@@ -211,6 +219,8 @@ module Spinner
 
     def next_request!
       @requests_served += 1
+      @trace = nil
+      @trace_id = nil
       bytes = @remainder
       @remainder = "".b
       cleanup_body
@@ -250,6 +260,12 @@ module Spinner
       end
       if @state == :headers
         if @parser.feed(chunk)
+          trace_id = @parser.headers["x-spinner-trace"]
+          unless trace_id.nil? || trace_id.empty? || trace_id.bytesize > 200 || trace_id.match?(/[^a-zA-Z0-9_.-]/)
+            @trace_id = trace_id
+            @request_sequence = @requests_served + 1
+            @trace = {}
+          end
           @state = :body
           @body_deadline = Transport.now + @body_timeout
           @deadline = @body_deadline
@@ -321,6 +337,7 @@ module Spinner
         @wait_direction = :read
         @deadline = @body_deadline
       else
+        @trace[:response_write_done] = Transport.now if @trace
         close
       end
     rescue IO::WaitWritable
@@ -356,6 +373,8 @@ module Spinner
         end
       end
     end
+
+    attr_reader :trace, :trace_id, :request_sequence
 
   end
 
@@ -475,6 +494,22 @@ module Spinner
         @pool.maintain(@application, @header_limit, @read_timeout,
                        @write_timeout, @body_timeout, @port) unless @draining
         @pool.completed.each do |client|
+          if client.trace
+            client.trace[:reactor_collection] = Transport.now
+            trace = client.trace
+            total_ms = (trace[:reactor_collection] - trace[:ready]) * 1000.0
+            if total_ms > 5.0
+              ms = ->(from, to) { (trace[to] && trace[from] ? (trace[to] - trace[from]) * 1000.0 : nil) }
+              line = "SPINNER_TRACE trace_id=#{client.trace_id} connection_id=#{client.id} request_sequence=#{client.request_sequence} pid=#{Process.pid} total_ms=#{format('%.3f', total_ms)} ready_to_queue_ms=#{format('%.3f', ms.call(:ready, :queued) || 0)} queue_ms=#{format('%.3f', ms.call(:queued, :worker_start) || 0)} worker_to_app_ms=#{format('%.3f', ms.call(:worker_start, :app_start) || 0)} app_ms=#{format('%.3f', ms.call(:app_start, :app_return) || 0)} write_ms=#{format('%.3f', ms.call(:app_return, :response_write_done) || 0)} completion_to_reactor_ms=#{format('%.3f', ms.call(:completion_publication, :reactor_collection) || 0)}"
+              if ENV["SPINNER_TRACE_OUTPUT"] == "discard"
+                nil
+              elsif ENV["SPINNER_TRACE_LOG"]
+                File.open(ENV["SPINNER_TRACE_LOG"], "a") { |file| file.puts(line) }
+              else
+                warn line
+              end
+            end
+          end
           if @draining || client.closed?
             client.close
           else
@@ -552,7 +587,7 @@ module Spinner
     end
 
     def poll_interval
-      0.05
+      0.005
     end
 
     def accept_ready
