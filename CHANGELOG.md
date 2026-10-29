@@ -2,6 +2,8 @@
 
 - Wake the reactor when workers return reusable connections or free connection
   capacity, removing the dependency on the 50 ms housekeeping poll.
+- Disable Nagle's algorithm on accepted TCP sockets to reduce delays between
+  separate response header and body writes.
 - Rename the distribution to `spinel-spinner` while retaining `require "spinner"`
   and the `Spinner` namespace.
 

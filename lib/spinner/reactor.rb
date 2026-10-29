@@ -15,8 +15,13 @@ module Spinner
       @storage_status = 503
       @storage = nil
       @close_lock = Mutex.new
-      @peer = socket.respond_to?(:peeraddr) ? socket.peeraddr[3] : ""
+      peer = socket.respond_to?(:peeraddr) ? socket.peeraddr : nil
+      @peer = peer.nil? ? "" : peer[3]
       @peer = "" if @peer.nil?
+      if !peer.nil? && (peer[0] == "AF_INET" || peer[0] == "AF_INET6")
+        # Separate small header and body writes can stall behind delayed ACKs.
+        socket.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
+      end
       @socket = TLS::Socket.new(socket, tls_context)
       @port = port
       @scheme = tls_context.nil? ? "http" : "https"
