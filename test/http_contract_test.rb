@@ -94,6 +94,22 @@ class HttpContractTest < Minitest::Test
     end
   end
 
+  def test_serial_keep_alive_reuse_and_default_request_limit
+    with_server do |server|
+      tcp(server.port) do |socket|
+        100.times do |index|
+          socket.write("GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+          response = read_response(socket)
+          assert_response(response, 200, "OK")
+          expected = index == 99 ? "close" : "keep-alive"
+          assert_equal([expected], response.header("connection"))
+        end
+        assert_equal("close", read_response_close(socket))
+      end
+      assert_response(request(server.port), 200, "OK")
+    end
+  end
+
   def test_streaming_sse_and_cleanup
     with_server do |server|
       stream = request(server.port, path: "/stream")

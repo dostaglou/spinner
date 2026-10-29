@@ -28,8 +28,9 @@ module Spinner
   end
 
   class ThreadPool
-    def initialize(application, size, capacity, header_limit, read_timeout, write_timeout, body_timeout, port, connections, options)
+    def initialize(application, size, capacity, header_limit, read_timeout, write_timeout, body_timeout, port, connections, options, wakeup)
       @options = options
+      @wakeup = wakeup
       @streams = TaskPool.new(options[:max_streams])
       @upgrades = TaskPool.new(options[:max_upgrades])
       @async_clients = []
@@ -43,9 +44,14 @@ module Spinner
       @stopping = false
       @stop_deadline = nil
       @workers = []
-      size.times do
-        @workers << spawn_worker(application, header_limit, read_timeout,
-                                 write_timeout, body_timeout, port)
+      begin
+        size.times do
+          @workers << spawn_worker(application, header_limit, read_timeout,
+                                   write_timeout, body_timeout, port)
+        end
+      rescue Exception # rubocop:disable Lint/RescueException -- do not leave producers alive after interrupted startup
+        stop
+        raise
       end
     end
 
@@ -61,6 +67,7 @@ module Spinner
           end
           app_ms = nil
           reuse = false
+          result = nil
           begin
             reuse = client.keep_alive?
             result = connection.serve_buffered(client, method(:execute_async), @options[:stream_idle_timeout])
@@ -70,17 +77,8 @@ module Spinner
             end
             warn "SPINNER_METRIC event=finish id=#{client.id} app_ms=#{app_ms}" if @options[:request_metrics]
           ensure
-            if result == :async
-              @lock.synchronize { @active.delete(Thread.current) }
-            elsif !app_ms.nil? && reuse && !client.socket.closed?
-              @lock.synchronize do
-                @completed << client
-                @active.delete(Thread.current)
-              end
-            else
-              client.close
-              @lock.synchronize { @active.delete(Thread.current) }
-            end
+            @lock.synchronize { @active.delete(Thread.current) }
+            complete(client, !app_ms.nil? && reuse) unless result == :async
           end
         end
       end
@@ -96,9 +94,12 @@ module Spinner
         begin
           body.close if body.respond_to?(:close)
         ensure
-          client.cleanup_body
-          client.close
-          @lock.synchronize { @async_clients.delete(client) }
+          begin
+            client.cleanup_body
+          ensure
+            @lock.synchronize { @async_clients.delete(client) }
+            complete(client, false)
+          end
         end
       end
       accepted = pool.submit(cancelled) do
@@ -111,15 +112,16 @@ module Spinner
         rescue StandardError => error
           warn "SPINNER_METRIC event=stream_failure message=#{error.message}"
         ensure
-          client.cleanup_body
-          @lock.synchronize do
-            @async_clients.delete(client)
-            client.stream_deadline = nil
-            if reuse && !client.closed? && !@stopping
-              @completed << client
-            else
-              client.close
+          cleaned = false
+          begin
+            client.cleanup_body
+            cleaned = true
+          ensure
+            @lock.synchronize do
+              @async_clients.delete(client)
+              client.stream_deadline = nil
             end
+            complete(client, reuse && cleaned)
           end
           warn "SPINNER_METRIC event=#{kind}_finish id=#{client.id}" if @options[:request_metrics]
         end
@@ -129,6 +131,22 @@ module Spinner
         warn "SPINNER_METRIC event=rejected kind=#{kind} id=#{client.id}"
       end
       accepted
+    end
+
+    def complete(client, reuse)
+      retained = @lock.synchronize do
+        if reuse && !client.closed? && !@stopping
+          @completed << client
+          true
+        else
+          false
+        end
+      end
+      client.close unless retained
+    ensure
+      # Publish before signaling, outside the pool lock. Closures also wake the
+      # reactor: it may have excluded the listener while capacity was full.
+      @wakeup.signal
     end
 
     def enqueue(client)
@@ -213,9 +231,22 @@ module Spinner
 
     def stop
       request_stop
-      @lock.synchronize { @async_clients.each(&:close) }
-      @streams.stop
-      @upgrades.stop
+      begin
+        @lock.synchronize { @async_clients.each(&:close) }
+      ensure
+        begin
+          @streams.stop
+        ensure
+          begin
+            @upgrades.stop
+          ensure
+            stop_workers
+          end
+        end
+      end
+    end
+
+    def stop_workers
       @workers.each(&:kill)
       @workers.each do |worker|
         begin

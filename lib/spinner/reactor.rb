@@ -388,8 +388,15 @@ module Spinner
       @reserve_fd = File.open("/dev/null", "r")
       @reserve_reopen_count = nil
       @last_heartbeat = Transport.now
+      @wakeup = ReactorWakeup.new
       @pool = ThreadPool.new(application, threads, queue_capacity, header_limit,
-                             read_timeout, write_timeout, body_timeout, port, @capacity, @options)
+                             read_timeout, write_timeout, body_timeout, port, @capacity, @options, @wakeup)
+    rescue Exception # rubocop:disable Lint/RescueException -- clean up after interrupted or failed pool startup
+      # ThreadPool stops any partially started workers before its constructor
+      # raises. Storage workers are lazy and cannot have started here yet.
+      @wakeup.close unless @wakeup.nil?
+      @reserve_fd.close unless @reserve_fd.nil? || @reserve_fd.closed?
+      raise
     end
 
     def shutdown!(graceful = false)
@@ -400,6 +407,10 @@ module Spinner
 
     def run
       loop do
+        # Drain BEFORE inspecting completions/capacity. A later publication
+        # leaves a readable token for select, including when the pipe was full.
+        # Draining after the final state check could lose that wakeup.
+        @wakeup.drain
         now = Transport.now
         if @reactor_heartbeat && now - @last_heartbeat >= 1.0
           warn "SPINNER_METRIC event=reactor pid=#{Process.pid} connections=#{@capacity.count} clients=#{@clients.length} queued=#{@queued.length} app_active=#{@pool.active_count}"
@@ -475,7 +486,7 @@ module Spinner
         @clients.each do |client|
           read_client(client) if !client.closed? && client.buffered_tls_data?
         end
-        reads = []
+        reads = [@wakeup.reader]
         reads << @listener unless @draining || @capacity.full? || now < @accept_backoff_until
         writes = []
         deadline = nil
@@ -490,12 +501,15 @@ module Spinner
           next if @draining
           deadline = client.deadline if deadline.nil? || client.deadline < deadline
         end
-        timeout = deadline.nil? ? 0.05 : [[deadline - Transport.now, 0.0].max, 0.05].min
+        timeout = deadline.nil? ? poll_interval : [[deadline - Transport.now, 0.0].max, poll_interval].min
         timeout = [timeout, 0.001].min if @clients.any?(&:storage_pending?)
         selected = IO.select(reads, writes, nil, timeout)
         next if selected.nil?
         selected[0].each do |socket|
-          if socket == @listener
+          if socket == @wakeup.reader
+            # The next iteration drains notifications and checks shared state.
+            next
+          elsif socket == @listener
             accept_ready
           else
             client = @clients.find { |candidate| candidate.socket.to_io == socket }
@@ -508,15 +522,32 @@ module Spinner
         end
       end
     ensure
-      warn "SPINNER_METRIC event=shutdown_complete pid=#{Process.pid} remaining=#{@capacity.count} outcome=#{@capacity.count == 0 ? 'drained' : 'forced'}"
-      @clients.each(&:close)
-      @queued.each do |client|
-        client.close if @pool.cancel(client)
+      begin
+        warn "SPINNER_METRIC event=shutdown_complete pid=#{Process.pid} remaining=#{@capacity.count} outcome=#{@capacity.count == 0 ? 'drained' : 'forced'}"
+        @clients.each(&:close)
+        @queued.each do |client|
+          client.close if @pool.cancel(client)
+        end
+      ensure
+        begin
+          @pool.stop
+        ensure
+          begin
+            @options[:storage_pool].stop
+          ensure
+            begin
+              @reserve_fd.close unless @reserve_fd.nil? || @reserve_fd.closed?
+              @pool.completed.each(&:close)
+            ensure
+              @wakeup.close
+            end
+          end
+        end
       end
-      @pool.stop
-      @options[:storage_pool].stop
-      @reserve_fd.close unless @reserve_fd.nil? || @reserve_fd.closed?
-      @pool.completed.each(&:close)
+    end
+
+    def poll_interval
+      0.05
     end
 
     def accept_ready

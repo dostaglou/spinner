@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+- Wake the reactor when workers return reusable connections or free connection
+  capacity, removing the dependency on the 50 ms housekeeping poll.
 - Rename the distribution to `spinel-spinner` while retaining `require "spinner"`
   and the `Spinner` namespace.
 
