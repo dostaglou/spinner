@@ -62,6 +62,34 @@ together; latency outliers alone do not establish this defect.
   requests per app and mode: 200,000 successes, zero requests over 10 ms.
   Median untraced RPS: Spinner 8,897, Hamster 8,337. Tracing slightly lowers RPS.
 
-Concurrent-load validation, Linux/epoll execution and the full upstream suite
-remain separate checks. HTTP measurements are closed-loop latency tests, not
-fixed-arrival-rate capacity measurements.
+## Concurrent validation and pause point
+
+Performance is no longer a blocker as of 2026-10-29; further investigation is
+paused at the user's request.
+
+The patched HTTP servers were also checked without tracing at concurrency 24
+and 48, alongside Sinatra. At concurrency 48, five rounds of 100,000 requests
+per app completed all 1.5 million requests successfully:
+
+| App | Median RPS | p99 ms | Maximum ms |
+|---|---:|---:|---:|
+| Spinner | 14,588 | 8.566 | 133.712 |
+| Hamster | 13,943 | 8.622 | 126.020 |
+| Sinatra | 9,261 | 10.162 | 165.971 |
+
+Throughput was essentially flat versus concurrency 24. Longer pauses appeared
+in groups of 48 outstanding requests across all three apps. Client GC is a
+hypothesis because the Ruby runner retains 1.5 million sample records; server
+GC and host scheduling have not been excluded. These tails are distinct from
+the earlier regular 51 ms stall population and remain unattributed.
+
+The matching patched runtime and separately built candidate server executables
+remain local benchmark artifacts. The globally installed runtime has not been
+replaced, and no release or upstream change has been published. Spinner's
+5 ms reactor interval remains the experimental setting saved in this checkpoint.
+The runtime patch is preserved here for later review and integration.
+
+Deferred work, if needed: attribute the long-run tails using client GC/memory
+and server barrier/backstop counters; run Linux/epoll and the full upstream
+suite before a general runtime release. HTTP measurements here are closed-loop
+latency tests, not fixed-arrival-rate capacity measurements.
