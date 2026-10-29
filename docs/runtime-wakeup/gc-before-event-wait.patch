@@ -1,0 +1,15 @@
+--- a/lib/sp_sched.c
++++ b/lib/sp_sched.c
+@@ -1670,6 +1670,12 @@
+     SCHED_LOCK();
+     return n;
+   }
++  /* The zero-timeout drain drops the scheduler lock and may consume a kick
++     sent by a collector that raised the barrier meanwhile. Do not enter a
++     blocking wait after that kick is gone: this worker is still in the
++     world, and the collector is waiting for it to park. The caller's loop
++     checks g_stw_active and parks under this same lock on its next turn. */
++  if (g_stw_active) return 0;
+   sp_ev_ready evs[64];
+   sp_ev_arm_kick(wid);
+   g_wslot[wid].ev_waiting = 1;
