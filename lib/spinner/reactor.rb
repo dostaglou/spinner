@@ -606,7 +606,6 @@ module Spinner
         @capacity.release
         raise
       end
-      warn "SPINNER_METRIC event=accept id=#{@next_id} connections=#{@capacity.count} pid=#{Process.pid}"
     rescue IO::WaitReadable
       nil
     rescue Errno::EMFILE, Errno::ENFILE, Errno::ECONNABORTED => error
